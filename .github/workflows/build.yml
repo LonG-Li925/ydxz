@@ -14,7 +14,7 @@ jobs:
           ls -la
           ZIPF=$(ls -1 *.zip 2>/dev/null | head -n 1)
           if [ -z "$ZIPF" ]; then
-            echo "::error::仓库根目录没有 .zip。请把 ydxz-ios-xcode.zip 传到这个仓库根目录（不要解压后传单个文件）"
+            echo "::error::仓库根目录没有 .zip"
             exit 1
           fi
           echo "压缩包 = $ZIPF"
@@ -31,20 +31,24 @@ jobs:
           echo "PROJ=$PROJ" >> "$GITHUB_ENV"
           echo "工程目录 = $PROJ"
 
-      - name: 2) 补占位 www（空壳时自动跳线上）
+      - name: 2) 确保 www 目录存在
         run: |
           mkdir -p "$PROJ/YDXZ/www"
           if [ ! -f "$PROJ/YDXZ/www/index.html" ]; then
-            printf '%s' '<!doctype html><meta charset="utf-8"><title>跃动小子</title><script>location.replace("http://36.134.112.211:8081/")</script>' > "$PROJ/YDXZ/www/index.html"
+            cat > "$PROJ/YDXZ/www/index.html" <<'HTML'
+          <!doctype html><meta charset="utf-8"><title>App</title>
+          HTML
           fi
+          ls -la "$PROJ/YDXZ/www"
 
       - name: 3) 编译（关闭签名）
         run: |
-          set -euo pipefail
+          set -o pipefail
           cd "$PROJ"
           xcodebuild -project YDXZ.xcodeproj -target YDXZ -configuration Release -sdk iphoneos \
             CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO \
-            CONFIGURATION_BUILD_DIR="$PWD/build" build | tail -n 50
+            CONFIGURATION_BUILD_DIR="$PWD/build" build 2>&1 | tail -n 60
+          test -d "build/YDXZ.app"
 
       - name: 4) 打包未签名 ipa
         run: |
@@ -56,6 +60,7 @@ jobs:
           rm -rf Payload/YDXZ.app/_CodeSignature Payload/YDXZ.app/embedded.mobileprovision
           zip -qry -0 YDXZ-unsigned.ipa Payload
           du -h YDXZ-unsigned.ipa
+          lipo -info Payload/YDXZ.app/YDXZ
 
       - name: 5) 上传产物
         uses: actions/upload-artifact@v4

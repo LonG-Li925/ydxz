@@ -1,7 +1,0 @@
-name: probe-linux
-on: [workflow_dispatch, push]
-jobs:
-  p:
-    runs-on: ubuntu-22.04
-    steps:
-      - run: echo "linux runner ok"
