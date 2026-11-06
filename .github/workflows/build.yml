@@ -1,0 +1,65 @@
+name: Build unsigned IPA
+on: [workflow_dispatch, push]
+
+jobs:
+  build:
+    runs-on: macos-14
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 1) 解压并定位工程
+        run: |
+          echo "== 仓库根目录 =="
+          ls -la
+          ZIPF=$(ls -1 *.zip 2>/dev/null | head -n 1)
+          if [ -z "$ZIPF" ]; then
+            echo "::error::仓库根目录没有 .zip。请把 ydxz-ios-xcode.zip 传到这个仓库根目录（不要解压后传单个文件）"
+            exit 1
+          fi
+          echo "压缩包 = $ZIPF"
+          mkdir -p _src
+          ditto -x -k "$ZIPF" _src || python3 -m zipfile -e "$ZIPF" _src
+          echo "== 解压结果 =="
+          ls -la _src
+          XCODEPROJ=$(find . -maxdepth 5 -name YDXZ.xcodeproj -type d -print -quit)
+          if [ -z "$XCODEPROJ" ]; then
+            echo "::error::解压后没找到 YDXZ.xcodeproj"
+            exit 1
+          fi
+          PROJ=$(dirname "$XCODEPROJ")
+          echo "PROJ=$PROJ" >> "$GITHUB_ENV"
+          echo "工程目录 = $PROJ"
+
+      - name: 2) 补占位 www（空壳时自动跳线上）
+        run: |
+          mkdir -p "$PROJ/YDXZ/www"
+          if [ ! -f "$PROJ/YDXZ/www/index.html" ]; then
+            printf '%s' '<!doctype html><meta charset="utf-8"><title>跃动小子</title><script>location.replace("http://36.134.112.211:8081/")</script>' > "$PROJ/YDXZ/www/index.html"
+          fi
+
+      - name: 3) 编译（关闭签名）
+        run: |
+          set -euo pipefail
+          cd "$PROJ"
+          xcodebuild -project YDXZ.xcodeproj -target YDXZ -configuration Release -sdk iphoneos \
+            CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO \
+            CONFIGURATION_BUILD_DIR="$PWD/build" build | tail -n 50
+
+      - name: 4) 打包未签名 ipa
+        run: |
+          set -euo pipefail
+          cd "$PROJ"
+          rm -rf Payload YDXZ-unsigned.ipa
+          mkdir -p Payload
+          cp -R build/YDXZ.app Payload/
+          rm -rf Payload/YDXZ.app/_CodeSignature Payload/YDXZ.app/embedded.mobileprovision
+          zip -qry -0 YDXZ-unsigned.ipa Payload
+          du -h YDXZ-unsigned.ipa
+
+      - name: 5) 上传产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: YDXZ-unsigned-ipa
+          path: "**/YDXZ-unsigned.ipa"
+          retention-days: 30
